@@ -1,14 +1,13 @@
-use chrono::NaiveDate;
+use rusqlite::params;
 use rusqlite::Connection;
-use rusqlite::params;   
 use serde::{Deserialize, Serialize};
-use chrono::Datelike;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PayrollEntry {
-    pub employee_name: String,
-    pub hours_worked: f32,
+    pub id: i64,
     pub date_of_pay: String,
+    pub employee_id: String,
+    pub hours_worked: f32,
     pub gross: f32,
     pub withholding: f32,
     pub roth_ira: f32,
@@ -17,37 +16,40 @@ pub struct PayrollEntry {
 }
 
 impl PayrollEntry {
-    pub fn save_to_db(&self, conn: &Connection) {
-        if let Ok(parsed_date) = NaiveDate::parse_from_str(&self.date_of_pay, "%Y-%m-%d") {
-            let _ = conn.execute(
-                "INSERT INTO payroll (employee_name, hours_worked, pay_date, gross, withholding, roth_ira, social_security, net) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    &self.employee_name,
-                    &self.hours_worked,
-                    &parsed_date.to_string(),
-                    self.gross,
-                    self.withholding,
-                    self.roth_ira,
-                    self.social_security,
-                    self.net
-                ],
-            ).unwrap();
+    pub fn save_to_db(&self, conn: &Connection) -> Result<i64, rusqlite::Error> {
+        println!("Saving to DB: {}", self.date_of_pay);
+        match conn.execute(
+            "INSERT INTO payroll (
+                date_of_pay,
+                employee_id,
+                hours_worked,
+                gross,
+                withholding,
+                social_security,
+                roth_ira,
+                net) 
+            VALUES (
+                ?1,
+                ?2,
+                ?3,
+                ?4,
+                ?5,
+                ?6,
+                ?7,
+                ?8)",
+            params![
+                &self.date_of_pay,
+                &self.employee_id,    
+                &self.hours_worked,
+                self.gross,
+                self.withholding,
+                self.social_security,
+                self.roth_ira,        
+                self.net
+            ],
+        ) {
+            Ok(_) => Ok(conn.last_insert_rowid()),
+            Err(e) => Err(e),
         }
-    }
-    pub fn get_fridays_of_year() -> Vec<String> {
-        let today = chrono::Local::now().date_naive();
-        let year = today.year();
-        let mut fridays = Vec::new();
-
-        for month in 1..=12 {
-            for day in 1..=31 {
-                if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-                    if date.weekday() == chrono::Weekday::Fri {
-                        fridays.push(date.format("%Y-%m-%d").to_string());
-                    }
-                }
-            }
-        }
-        fridays
     }
 }

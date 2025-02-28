@@ -1,4 +1,5 @@
 use crate::app::employee::Employee;
+use crate::app::payroll::PayrollEntry;
 use crate::app::app::PharmacyApp;
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -153,7 +154,7 @@ pub fn initialize_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
             id INTEGER PRIMARY KEY,
             employee_id INTEGER,
             hours_worked REAL,
-            pay_date TEXT,
+            date_of_pay TEXT,
             gross REAL,
             withholding REAL,
             social_security REAL,   
@@ -171,4 +172,29 @@ pub fn get_db_path() -> PathBuf {
     std::fs::create_dir_all(&path).expect("Failed to create data directory");
     path.push("employees.db");
     path
+}
+
+pub fn delete_payroll_entry(conn: &Connection, id: i64) -> Result<(), rusqlite::Error> {
+    conn.execute("DELETE FROM payroll WHERE id = ?", [id])?;
+    Ok(())
+}
+
+pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT * FROM payroll")?;
+    let payroll_entries: Vec<PayrollEntry> = stmt
+        .query_map([], |row| {
+            Ok(PayrollEntry {
+                id: row.get(0)?,
+                employee_id: row.get(1)?,
+                hours_worked: row.get(2)?,
+                date_of_pay: row.get(3)?,
+                gross: row.get(4)?,
+                withholding: row.get(5)?,
+                social_security: row.get(6)?,
+                net: row.get(7)?,
+                roth_ira: row.get(8)?,
+            })
+        })?
+    .collect::<Result<Vec<_>, _>>()?;
+    Ok(payroll_entries)
 }

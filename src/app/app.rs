@@ -211,7 +211,7 @@ impl PharmacyApp {
 
 }
 
-fn get_fridays_of_year() -> Vec<String> {
+pub fn get_fridays_of_year() -> Vec<String> {
     let today = chrono::Local::now().date_naive();
     let year = today.year();
     let mut fridays = Vec::new();

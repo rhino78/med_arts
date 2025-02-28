@@ -4,7 +4,6 @@ pub mod app;
 mod tests {
     use crate::app::app::ActivePanel;
     use crate::app::app::PharmacyApp;
-    use crate::app::database::get_all_employees;
     use crate::app::employee::Employee;
     use rusqlite::Connection;
     use rusqlite::Result;
@@ -18,20 +17,74 @@ mod tests {
         let conn = Connection::open_in_memory().expect("Failed to create test database");
         conn.execute(
             "CREATE TABLE 
-            employees (id INTEGER PRIMARY KEY, name TEXT, position TEXT, address TEXT, city TEXT, state TEXT, phone TEXT, filing_status TEXT, dependents TEXT, pay_rate TEXT)",[],)?;
+            employees (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                position TEXT,
+                address TEXT,
+                city TEXT,
+                state TEXT,
+                phone TEXT,
+                filing_status TEXT,
+                dependents TEXT,
+                pay_rate TEXT)",[],)?;
 
-        conn.execute("CREATE TABLE 
-            payroll (id INTEGER PRIMARY KEY, employee_id INTEGER, date TEXT, hours REAL, FOREIGN KEY(employee_id) REFERENCES employees(id))",[],)?;
+        conn.execute("CREATE TABLE  payroll (
+            id INTEGER PRIMARY KEY,
+            employee_id INTEGER,
+            hours_worked REAL,
+            pay_date TEXT,
+            gross REAL,
+            withholding REAL,
+            social_security REAL,   
+            net REAL,
+            roth_ira REAL, FOREIGN KEY(employee_id) REFERENCES employees(id))",[],)?;
 
         conn.execute(
-            "INSERT INTO employees (name, position, address, city, state, phone, filing_status, dependents, pay_rate) 
-            VALUES ('Bob', 'Manager', '456 Main St', 'Anytown', 'CA', '987-654-3210', 'single', '0', '50')",
+            "INSERT INTO employees (
+                name,
+                position,
+                address,
+                city,
+                state,
+                phone,
+                filing_status,
+                dependents,
+                pay_rate) 
+            VALUES (
+                'Bob',
+                'Manager',
+                '456 Main St',
+                'Anytown',
+                'CA',
+                '987-654-3210',
+                'single',
+                '0',
+                '50')",
             [],
         )?;
 
         conn.execute(
-            "INSERT INTO employees (name, position, address, city, state, phone, filing_status, dependents, pay_rate) 
-            VALUES ('Ryan', 'Manager', '456 Main St', 'Anytown', 'CA', '987-654-3210', 'single', '0', '50')",[])?;
+            "INSERT INTO employees (
+                name,
+                position,
+                address,
+                city,
+                state,
+                phone,
+                filing_status,
+                dependents,
+                pay_rate) 
+            VALUES (
+                'Ryan',
+                'Manager',
+                '456 Main St',
+                'Anytown',
+                'CA',
+                '987-654-3210',
+                'single',
+                '0',
+                '50')",[])?;
 
         Ok(conn)
     }
@@ -82,13 +135,30 @@ mod tests {
         let conn = setup_test_db().expect("Failed to create test database");
 
         conn.execute(
-            "INSERT INTO payroll (employee_id, date, hours) VALUES (1, '2023-08-01', 8.0)",
+            "INSERT INTO payroll (
+                employee_id,
+                hours_worked,
+                pay_date,
+                gross,
+                withholding,
+                social_security,
+                net,
+                roth_ira) 
+            VALUES (
+                1,
+                '8.0',
+                '2023-08-01',
+                800.0,
+                200.0,
+                75.0,
+                625.0,
+                0.0)",
             [],
         )
         .expect("Failed to add payroll entry");
 
         let mut stmt = conn
-            .prepare("SELECT hours from payroll WHERE employee_id = 1")
+            .prepare("SELECT hours_worked from payroll WHERE employee_id = 1")
             .unwrap();
         let hours: f64 = stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(hours, 8.0, "Payroll entry should have been added");
@@ -100,8 +170,26 @@ mod tests {
 
         // Attempt to insert a duplicate employee
         let result = conn.execute(
-            "INSERT INTO employees (name, position, address, city,state, phone, filing_status, dependents, pay_rate)
-            VALUES ('Ryan', 'Manager', '456 Main St', 'Anytown', 'CA', '987-654-3210', 'single', '0', '50')",
+            "INSERT INTO employees (
+                name,
+                position,
+                address,
+                city,
+                state,
+                phone,
+                filing_status,
+                dependents,
+                pay_rate)
+            VALUES (
+                'Ryan',
+                'Manager',
+                '456 Main St',
+                'Anytown',
+                'CA',
+                '987-654-3210',
+                'single',
+                '0',
+                '50')",
             [],
         );
         assert!(

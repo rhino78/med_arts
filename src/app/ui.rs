@@ -1,31 +1,12 @@
 use super::database;
-use crate::app::payroll::PayrollEntry;
-use crate::app::database::search_employee;
-use crate::app::database::add_employee;
+use crate::app::app::get_fridays_of_year;
 use crate::app::app::PharmacyApp;
+use crate::app::database::add_employee;
+use crate::app::database::search_employee;
+use crate::app::payroll::PayrollEntry;
 use egui::Ui;
-use chrono::NaiveDate;
-use chrono::Datelike;
-
-fn get_fridays_of_year() -> Vec<String> {
-    let today = chrono::Local::now().date_naive();
-    let year = today.year();
-    let mut fridays = Vec::new();
-
-    for month in 1..=12 {
-        for day in 1..=31 {
-            if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-                if date.weekday() == chrono::Weekday::Fri {
-                    fridays.push(date.format("%Y-%m-%d").to_string());
-                }
-            }
-        }
-    }
-    fridays
-}
 
 pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
-    let employee_name = String::new();
     let fridays = get_fridays_of_year();
 
     let employees = match database::get_all_employees(&app.conn) {
@@ -120,17 +101,65 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
     });
 
     if ui.button("Save").clicked() {
-        let entry = PayrollEntry {
+        let _entry = PayrollEntry {
             date_of_pay: app.selected_friday.clone(),
             gross,
             net,
-            employee_name: employee_name.clone(),
+            employee_id: selected_employee_index.to_string(),
             hours_worked: app.hours_worked,
             withholding,
             roth_ira: app.roth_ira,
             social_security,
+            id: 0,
         };
-        entry.save_to_db(&app.conn);
+        let res = _entry.save_to_db(&app.conn);
+        println!("resut: {:?}", res);
+    }
+    ui.add_space(20.0);
+    ui.separator();
+    ui.label("Payroll History");
+    let payroll_entries = match database::get_all_payroll_entries(&app.conn) {
+        Ok(e) => e,
+        Err(e) => {
+            ui.label(format!("Error: {}", e));
+            return;
+        }
+    };
+
+    if payroll_entries.is_empty() {
+        ui.label("No payroll entries found");
+    } else {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("payroll_entries_grid")
+                .striped(true)
+                .spacing([10.0, 10.0])
+                .show(ui, |ui| {
+                    ui.strong("Date of Pay");
+                    ui.strong("Gross");
+                    ui.strong("Net");
+                    ui.strong("Employee Name");
+                    ui.strong("Hours Worked");
+                    ui.strong("Withholding");
+                    ui.strong("Roth IRA");
+                    ui.strong("Social Security");
+                    for entry in &payroll_entries {
+                        ui.label(&entry.date_of_pay);
+                        ui.label(&entry.employee_id);
+                        ui.label(format!("{:.2}", entry.gross));
+                        ui.label(format!("{:.2}", entry.net));
+                        ui.label(format!("{}", entry.hours_worked));
+                        ui.label(format!("{:.2}", entry.withholding));
+                        ui.label(format!("{:.2}", entry.roth_ira));
+                        ui.label(format!("{:.2}", entry.social_security));
+
+                        if ui.button("Delete").clicked() {
+                            database::delete_payroll_entry(&app.conn, entry.id).unwrap_or_else(
+                                |e| println!("Error deleting payroll entry: {}", e),
+                            );
+                        }
+                    }
+                });
+        });
     }
 }
 pub fn render_employees(app: &mut PharmacyApp, ui: &mut Ui) {
