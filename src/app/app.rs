@@ -1,12 +1,15 @@
 use std::result;
 
 use self::employee::Employee;
+use crate::app::database;
 use crate::app::ui::render_employees;
 use chrono::NaiveDate;
-use crate::app::database;
+use poll_promise::Promise;
 
 pub use super::employee;
 use crate::app::ui::render_payroll;
+use crate::app::update::check_for_updates_blocking;
+use crate::app::update::perform_update;
 use chrono::Datelike;
 use eframe::egui;
 use rusqlite::params;
@@ -47,6 +50,10 @@ pub struct PharmacyApp {
     pub net: f32,
     pub gross: f32,
     pub pay_rate: String,
+
+    update_check:
+        Option<Promise<Result<Option<String>, Box<dyn std::error::Error + Send + Sync + 'static>>>>,
+    update_available: Option<String>,
 }
 
 impl Default for PharmacyApp {
@@ -56,8 +63,7 @@ impl Default for PharmacyApp {
 }
 
 impl PharmacyApp {
-
-    pub fn get_all_employees (&self) -> result::Result<Vec<Employee>, rusqlite::Error> {
+    pub fn get_all_employees(&self) -> result::Result<Vec<Employee>, rusqlite::Error> {
         database::get_all_employees(&self.conn)
     }
 
@@ -116,10 +122,49 @@ impl PharmacyApp {
             selected_friday,
             net: 0.0,
             gross: 0.0,
+            update_check: None,
+            update_available: None,
         };
 
         app.employees = database::get_all_employees(&app.conn).expect("Failed to get employees");
         app
+    }
+
+    fn check_for_update(&mut self) {
+        self.update_check = Some(Promise::spawn_thread("update_check", || {
+            check_for_updates_blocking()
+        }));
+    }
+
+    fn render_update_status(&mut self, ui: &mut egui::Ui) {
+        if let Some(promise) = &self.update_check {
+            if let Some(result) = promise.ready() {
+                match result {
+                    Ok(Some(version)) => {
+                        self.update_available = Some(version.clone());
+                    }
+                    Ok(None) => {
+                        ui.label("Your app is up to date!");
+                    }
+                    Err(e) => {
+                        ui.label(format!("Error checking for updates: {}", e));
+                    }
+                }
+                self.update_check = None;
+            } else {
+                ui.spinner();
+                ui.label("Checking for updates...");
+            }
+        }
+
+        if let Some(version) = &self.update_available {
+            ui.horizontal(|ui| {
+                ui.label(format!("Update available: v{}", version));
+                if ui.button("Update Now").clicked() {
+                    perform_update();
+                }
+            });
+        }
     }
 
     fn add_employee(&mut self) {
@@ -165,7 +210,6 @@ impl PharmacyApp {
             self.search_status = "Please enter both name and position".to_string();
             println!("error adding employee");
         }
-
     }
 
     fn render_home(&mut self, ui: &mut egui::Ui) {
@@ -185,7 +229,6 @@ impl PharmacyApp {
         ui.label("Enter Admin Text Below");
         ui.text_edit_singleline(&mut self.admin_text);
     }
-
 
     fn save_payroll(&mut self) {
         if let Some(employee) = &self.selected_employee {
@@ -208,7 +251,6 @@ impl PharmacyApp {
             println!("Payroll saved for {}!", employee.name);
         }
     }
-
 }
 
 pub fn get_fridays_of_year() -> Vec<String> {
@@ -249,6 +291,9 @@ impl eframe::App for PharmacyApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.render_update_status(ui);
+            });
         });
 
         // Dynamically change the entire CentralPanel based on the selected button
@@ -260,6 +305,3 @@ impl eframe::App for PharmacyApp {
         });
     }
 }
-
-
-

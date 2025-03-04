@@ -105,7 +105,7 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
             date_of_pay: app.selected_friday.clone(),
             gross,
             net,
-            employee_id: selected_employee_index.to_string(),
+            employee_id: selected_employee_index as i32,
             hours_worked: app.hours_worked,
             withholding,
             roth_ira: app.roth_ira,
@@ -137,14 +137,15 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
                     ui.strong("Date of Pay");
                     ui.strong("Gross");
                     ui.strong("Net");
-                    ui.strong("Employee Name");
+                    //ui.strong("Employee Name");
                     ui.strong("Hours Worked");
                     ui.strong("Withholding");
                     ui.strong("Roth IRA");
                     ui.strong("Social Security");
+                    ui.end_row();
                     for entry in &payroll_entries {
                         ui.label(&entry.date_of_pay);
-                        ui.label(&entry.employee_id);
+                        //ui.label(&entry.employee_id);
                         ui.label(format!("{:.2}", entry.gross));
                         ui.label(format!("{:.2}", entry.net));
                         ui.label(format!("{}", entry.hours_worked));
@@ -157,6 +158,7 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
                                 |e| println!("Error deleting payroll entry: {}", e),
                             );
                         }
+                        ui.end_row();
                     }
                 });
         });

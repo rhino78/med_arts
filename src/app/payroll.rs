@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct PayrollEntry {
     pub id: i64,
     pub date_of_pay: String,
-    pub employee_id: String,
+    pub employee_id: i32,
     pub hours_worked: f32,
     pub gross: f32,
     pub withholding: f32,
