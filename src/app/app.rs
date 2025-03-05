@@ -54,6 +54,10 @@ pub struct PharmacyApp {
     update_check:
         Option<Promise<Result<Option<String>, Box<dyn std::error::Error + Send + Sync + 'static>>>>,
     update_available: Option<String>,
+    update_error: Option<String>,
+    pub selected_employee_id: Option<i32>,
+    //selected_employee: Option<Employee>,
+    pub show_add_employee_popup: bool,
 }
 
 impl Default for PharmacyApp {
@@ -124,6 +128,9 @@ impl PharmacyApp {
             gross: 0.0,
             update_check: None,
             update_available: None,
+            update_error: None,
+            selected_employee_id: None,
+            show_add_employee_popup: false,
         };
 
         app.employees = database::get_all_employees(&app.conn).expect("Failed to get employees");
@@ -138,32 +145,28 @@ impl PharmacyApp {
 
     fn render_update_status(&mut self, ui: &mut egui::Ui) {
         if let Some(promise) = &self.update_check {
-            if let Some(result) = promise.ready() {
-                match result {
-                    Ok(Some(version)) => {
-                        self.update_available = Some(version.clone());
-                    }
-                    Ok(None) => {
-                        ui.label("Your app is up to date!");
-                    }
-                    Err(e) => {
-                        ui.label(format!("Error checking for updates: {}", e));
-                    }
-                }
-                self.update_check = None;
-            } else {
+            if promise.ready().is_none() {
                 ui.spinner();
-                ui.label("Checking for updates...");
+                ui.label("checking for updates");
+                return;
             }
         }
 
-        if let Some(version) = &self.update_available {
-            ui.horizontal(|ui| {
-                ui.label(format!("Update available: v{}", version));
-                if ui.button("Update Now").clicked() {
-                    perform_update();
+        if let Some(promise) = self.update_check.take() {
+            match promise.block_and_take() {
+                Ok(Some(version)) => {
+                    self.update_available = Some(version);
+                    self.update_error = None;
                 }
-            });
+                Ok(None) => {
+                    self.update_error = None;
+                    self.update_available = None;
+                }
+                Err(e) => {
+                    self.update_error = Some(e.to_string());
+                    self.update_available = None;
+                }
+            }
         }
     }
 
@@ -221,13 +224,29 @@ impl PharmacyApp {
         ui.heading("Admin Panel");
         ui.label("Manage administrative settings here.");
         ui.separator();
-        ui.label("Features to be added:");
-        ui.label("User Management");
-        ui.label("System Settings");
-        ui.label("Access Control");
-        ui.separator();
-        ui.label("Enter Admin Text Below");
-        ui.text_edit_singleline(&mut self.admin_text);
+        ui.horizontal(|ui| {
+            ui.label("Application Updates");
+            if ui.button("Check for Updates").clicked() {
+                self.check_for_update();
+            }
+        });
+
+        if let Some(error) = &self.update_error {
+            ui.colored_label(egui::Color32::RED, "Update Error: ");
+            ui.label(error);
+        }
+
+        if let Some(version) = &self.update_available {
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!("Update available: {}", version),
+                );
+                if ui.button("Download").clicked() {
+                    perform_update();
+                }
+            });
+        }
     }
 
     fn save_payroll(&mut self) {
@@ -291,6 +310,7 @@ impl eframe::App for PharmacyApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 self.render_update_status(ui);
             });

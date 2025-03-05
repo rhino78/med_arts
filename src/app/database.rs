@@ -1,10 +1,30 @@
+use crate::app::app::PharmacyApp;
 use crate::app::employee::Employee;
 use crate::app::payroll::PayrollEntry;
-use crate::app::app::PharmacyApp;
+use rusqlite::params;
 use rusqlite::Connection;
 use std::path::PathBuf;
-use rusqlite::params;
 
+pub fn get_employee_by_id(conn: &Connection, id: i32) -> Result<Employee, rusqlite::Error> {
+    conn.query_row(
+        "SELECT id, name, position, address, city, state, phone, filing_status, dependents, pay_rate FROM employees WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(Employee{
+                id: row.get(0)?,
+                name: row.get(1)?,
+                position: row.get(2)?,
+                address: row.get(3)?,
+                city: row.get(4)?,
+                state: row.get(5)?,
+                phone: row.get(6)?,
+                filing_status: row.get(7)?,
+                dependents : row.get(8)?,
+                pay_rate : row.get(9)?,
+            })
+        }
+    )
+}
 pub fn search_employee(app: &mut PharmacyApp) {
     let search_pattern = format!("%{}%", app.search_name);
     let sql = "SELECT * FROM employees WHERE name LIKE ?1";
@@ -195,6 +215,6 @@ pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, r
                 roth_ira: row.get(8)?,
             })
         })?
-    .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(payroll_entries)
 }

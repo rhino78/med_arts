@@ -1,4 +1,3 @@
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,5 +14,4 @@ pub struct Employee {
     pub pay_rate: String,
 }
 
-impl Employee {
-}
+impl Employee {}

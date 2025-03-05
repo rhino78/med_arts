@@ -27,9 +27,12 @@ mod tests {
                 phone TEXT,
                 filing_status TEXT,
                 dependents TEXT,
-                pay_rate TEXT)",[],)?;
+                pay_rate TEXT)",
+            [],
+        )?;
 
-        conn.execute("CREATE TABLE  payroll (
+        conn.execute(
+            "CREATE TABLE  payroll (
             id INTEGER PRIMARY KEY,
             employee_id INTEGER,
             hours_worked REAL,
@@ -38,7 +41,9 @@ mod tests {
             withholding REAL,
             social_security REAL,   
             net REAL,
-            roth_ira REAL, FOREIGN KEY(employee_id) REFERENCES employees(id))",[],)?;
+            roth_ira REAL, FOREIGN KEY(employee_id) REFERENCES employees(id))",
+            [],
+        )?;
 
         conn.execute(
             "INSERT INTO employees (
@@ -84,7 +89,9 @@ mod tests {
                 '987-654-3210',
                 'single',
                 '0',
-                '50')",[])?;
+                '50')",
+            [],
+        )?;
 
         Ok(conn)
     }

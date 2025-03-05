@@ -164,6 +164,7 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
         });
     }
 }
+
 pub fn render_employees(app: &mut PharmacyApp, ui: &mut Ui) {
     ui.heading("Employees Panel");
 
@@ -175,16 +176,63 @@ pub fn render_employees(app: &mut PharmacyApp, ui: &mut Ui) {
         }
     };
 
-    egui::Frame::group(ui.style())
-        .corner_radius(12.0)
-        .stroke(egui::Stroke::new(1.0, ui.visuals().window_stroke().color))
-        .show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.add_space(1.0);
-                ui.heading(egui::RichText::new("Add New Employee"));
-                ui.add_space(1.0);
-                ui.set_width(350.0);
+    ui.horizontal(|ui| {
+        ui.label("Select Employee");
+        egui::ComboBox::from_label("")
+            .selected_text(
+                app.selected_employee
+                    .as_ref()
+                    .map(|emp| emp.name.clone())
+                    .unwrap_or_else(|| "Select an employee".to_string()),
+            )
+            .show_ui(ui, |ui| {
+                for emp in &employees {
+                    ui.selectable_value(&mut app.selected_employee_id, Some(emp.id), &emp.name);
+                }
+            });
+        if ui.button("Add New Employee").clicked() {
+            app.show_add_employee_popup = true;
+        }
+    });
 
+    if let Some(selected_id) = app.selected_employee_id {
+        if app
+            .selected_employee
+            .as_ref()
+            .map_or(true, |emp| emp.id != selected_id)
+        {
+            match database::get_employee_by_id(&app.conn, selected_id) {
+                Ok(employee) => {
+                    app.selected_employee = Some(employee);
+                }
+                Err(e) => {
+                    ui.label(format!("Error fetching Employee {}", e));
+                }
+            }
+        }
+    }
+
+    if let Some(employee) = &app.selected_employee {
+        ui.separator();
+        ui.heading("Employee Details");
+
+        ui.vertical(|ui| {
+            ui.label(format!("ID: {}", employee.id));
+            ui.label(format!("Name: {}", employee.name));
+            ui.label(format!("Position: {}", employee.position));
+            ui.label(format!("Address: {}", employee.address));
+            ui.label(format!("City: {}", employee.city));
+            ui.label(format!("State: {}", employee.state));
+            ui.label(format!("Phone: {}", employee.phone));
+            ui.label(format!("Filiing Status: {}", employee.filing_status));
+            ui.label(format!("Dependendts: {}", employee.dependents));
+        });
+    }
+
+    if app.show_add_employee_popup {
+        egui::Window::new("Add New Employee")
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
                 // Use columns for better alignment
                 ui.columns(2, |columns| {
                     for (i, column) in columns.iter_mut().enumerate() {
@@ -285,80 +333,16 @@ pub fn render_employees(app: &mut PharmacyApp, ui: &mut Ui) {
                         });
                     }
                 });
-
-                ui.add_space(20.0);
-                if ui
-                    .add_sized(
-                        [250.0, 45.0],
-                        egui::Button::new("Add Employee")
-                            .corner_radius(12.0)
-                            .fill(ui.visuals().selection.bg_fill),
-                    )
-                    .clicked()
-                {
-                    add_employee(app);
-                }
-
-                ui.add_space(10.0);
-                ui.label(&app.search_status);
-                ui.add_space(10.0);
-            });
-        });
-
-    ui.separator();
-    ui.label("Search for Employee");
-    ui.horizontal(|ui| {
-        ui.label("Name");
-        egui::Frame::default()
-            .stroke(egui::Stroke::new(
-                1.0,
-                ui.visuals().widgets.noninteractive.fg_stroke.color,
-            ))
-            .inner_margin(egui::Vec2::new(5.0, 5.0))
-            .show(ui, |ui| {
-                ui.text_edit_singleline(&mut app.search_name);
-            });
-    });
-
-    if ui.button("Search").clicked() {
-        search_employee(app);
-    }
-
-    ui.separator();
-    ui.heading("Search Result:");
-
-    if let Some(employee) = &app.search_result {
-        ui.separator();
-        ui.label(format!("ID: {}", employee.id));
-        ui.label(format!("Name: {}", employee.name));
-        ui.label(format!("Position: {}", employee.position));
-        ui.label(format!("Address: {}", employee.address));
-        ui.label(format!("City: {}", employee.city));
-        ui.label(format!("State: {}", employee.state));
-        ui.label(format!("Phone: {}", employee.phone));
-        ui.label(format!("Filing Status: {}", employee.filing_status));
-        ui.label(format!("Dependents: {}", employee.dependents));
-    }
-
-    ui.separator();
-    ui.heading("All Employees");
-    if employees.is_empty() {
-        ui.label("No employees found");
-    } else {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for emp in employees {
                 ui.horizontal(|ui| {
-                    ui.label(format!("ID: {}", emp.id));
-                    ui.label(format!("Name: {}", emp.name));
-                    ui.label(format!("Position: {}", emp.position));
-                    ui.label(format!("Address: {}", emp.address));
-                    ui.label(format!("City: {}", emp.city));
-                    ui.label(format!("State: {}", emp.state));
-                    ui.label(format!("Phone: {}", emp.phone));
-                    ui.label(format!("Filing Status: {}", emp.filing_status));
-                    ui.label(format!("Dependents: {}", emp.dependents));
+                    if ui.button("Save").clicked() {
+                        add_employee(app);
+                        app.show_add_employee_popup = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        add_employee(app);
+                        app.show_add_employee_popup = false;
+                    }
                 });
-            }
-        });
+            });
     }
 }
