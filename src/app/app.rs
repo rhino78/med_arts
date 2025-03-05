@@ -2,6 +2,7 @@ use std::result;
 
 use self::employee::Employee;
 use crate::app::database;
+use crate::app::stockservice;
 use crate::app::ui::render_employees;
 use chrono::NaiveDate;
 use poll_promise::Promise;
@@ -12,6 +13,9 @@ use crate::app::update::check_for_updates_blocking;
 use crate::app::update::perform_update;
 use chrono::Datelike;
 use eframe::egui;
+use egui_plot::{Line, Plot, PlotPoints};
+use plotters::prelude::*;
+//use plotters_backend::DrawingBackend;
 use rusqlite::params;
 use rusqlite::Connection;
 
@@ -217,7 +221,103 @@ impl PharmacyApp {
 
     fn render_home(&mut self, ui: &mut egui::Ui) {
         ui.heading("Welcome to the Home Page");
-        ui.label("This is the main dashboard. Select an option from the top bar.");
+        ui.heading("Stock Prices");
+
+        let stock_service = stockservice::StockService::new();
+        match stock_service.get_stock_data() {
+            Ok((wba_data, cvs_data)) => {
+                ui.horizontal(|ui| {
+                    // Walgreens Stock
+                    ui.vertical(|ui| {
+                        let walgreens = &wba_data.quote;
+                        ui.label(format!("Walgreens (WBA)"));
+                        ui.label(format!("Price: ${:.2}", walgreens.current_price));
+                        ui.colored_label(
+                            if walgreens.change >= 0.0 {
+                                egui::Color32::GREEN
+                            } else {
+                                egui::Color32::RED
+                            },
+                            format!(
+                                "Change: {:.2} ({:.2}%)",
+                                walgreens.change, walgreens.change_percent
+                            ),
+                        );
+
+                        //// Create chart using historical data
+                        //let plot_points: PlotPoints = PlotPoints::new(
+                        //    wba_data
+                        //        .historical_data
+                        //        .prices
+                        //        .iter()
+                        //        .enumerate()
+                        //        .map(|(i, &price)| [i as f64, price])
+                        //        .collect(),
+                        //);
+                        //
+                        //Plot::new("WBA_chart").height(200.0).show(ui, |plot_ui| {
+                        //    plot_ui.line(
+                        //        egui_plot::Line::new(plot_points).name("Walgreens Stock Price"),
+                        //    );
+                        //});
+                        //
+                        // Display dates
+                        ui.horizontal(|ui| {
+                            for date in &wba_data.historical_data.dates {
+                                ui.label(date);
+                            }
+                        });
+                    });
+
+                    ui.add_space(20.0);
+
+                    // CVS Stock (similar implementation)
+                    ui.vertical(|ui| {
+                        let cvs = &cvs_data.quote;
+                        ui.label(format!("CVS (CVS)"));
+                        ui.label(format!("Price: ${:.2}", cvs.current_price));
+                        ui.colored_label(
+                            if cvs.change >= 0.0 {
+                                egui::Color32::GREEN
+                            } else {
+                                egui::Color32::RED
+                            },
+                            format!("Change: {:.2} ({:.2}%)", cvs.change, cvs.change_percent),
+                        );
+
+                        //// Create chart using historical data
+                        //let plot_points: PlotPoints = PlotPoints::new(
+                        //    cvs_data
+                        //        .historical_data
+                        //        .prices
+                        //        .iter()
+                        //        .enumerate()
+                        //        .map(|(i, &price)| [i as f64, price])
+                        //        .collect(),
+                        //);
+                        //
+                        //Plot::new("CVS_chart").height(200.0).show(ui, |plot_ui| {
+                        //    plot_ui.line(egui_plot::Line::new(plot_points).name("CVS Stock Price"));
+                        //});
+
+                        // Display dates
+                        ui.horizontal(|ui| {
+                            for date in &cvs_data.historical_data.dates {
+                                ui.label(date);
+                            }
+                        });
+                    });
+                });
+            }
+            Err(e) => {
+                ui.label(format!("Error fetching stock data: {}", e));
+            }
+        }
+
+        //additional content can go here
+        ui.add_space(20.0);
+        ui.heading("Welcome to the Medical Arts Pharmacy Payroll System");
+        ui.heading("Manage your pharmacy's employee information and payroll with ease");
     }
 
     fn render_admin(&mut self, ui: &mut egui::Ui) {
