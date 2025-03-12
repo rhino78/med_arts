@@ -5,6 +5,79 @@ use rusqlite::params;
 use rusqlite::Connection;
 use std::path::PathBuf;
 
+pub fn get_employee_payroll_history(
+    conn: &Connection,
+    id: i32,
+) -> Result<PayrollEntry, rusqlite::Error> {
+    conn.query_row(
+        "SELECT 
+                    id,
+                    date_of_pay,
+                    employee_id,
+                    hours_worked,
+                    gross,
+                    withholding,
+                    roth_ira,
+                    social_security,
+                    net
+                    FROM payroll WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(PayrollEntry {
+                id: row.get(0)?,
+                date_of_pay: row.get(1)?,
+                employee_id: row.get(2)?,
+                hours_worked: row.get(3)?,
+                gross: row.get(4)?,
+                withholding: row.get(5)?,
+                roth_ira: row.get(6)?,
+                social_security: row.get(7)?,
+                net: row.get(8)?,
+            })
+        },
+    )
+}
+
+pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT * FROM payroll WHERE employee_id = ?1    ")?;
+    let payroll_entries: Vec<PayrollEntry> = stmt
+        .query_map([], |row| {
+            Ok(PayrollEntry {
+                id: row.get(0)?,
+                employee_id: row.get(1)?,
+                hours_worked: row.get(2)?,
+                date_of_pay: row.get(3)?,
+                gross: row.get(4)?,
+                withholding: row.get(5)?,
+                social_security: row.get(6)?,
+                net: row.get(7)?,
+                roth_ira: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(payroll_entries)
+}
+
+pub fn get_payroll_by_id(conn: &Connection, id: i32) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT * FROM payroll WHERE employee_id = ?1")?;
+    let payroll_entries: Vec<PayrollEntry> = stmt
+        .query_map([id], |row| {
+            Ok(PayrollEntry {
+                id: row.get(0)?,
+                employee_id: row.get(1)?,
+                hours_worked: row.get(2)?,
+                date_of_pay: row.get(3)?,
+                gross: row.get(4)?,
+                withholding: row.get(5)?,
+                social_security: row.get(6)?,
+                net: row.get(7)?,
+                roth_ira: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(payroll_entries)
+}
+
 pub fn get_employee_by_id(conn: &Connection, id: i32) -> Result<Employee, rusqlite::Error> {
     conn.query_row(
         "SELECT id, name, position, address, city, state, phone, filing_status, dependents, pay_rate FROM employees WHERE id = ?1",
@@ -24,47 +97,6 @@ pub fn get_employee_by_id(conn: &Connection, id: i32) -> Result<Employee, rusqli
             })
         }
     )
-}
-pub fn search_employee(app: &mut PharmacyApp) {
-    let search_pattern = format!("%{}%", app.search_name);
-    let sql = "SELECT * FROM employees WHERE name LIKE ?1";
-    let mut stmt = match app.conn.prepare(sql) {
-        Ok(stmt) => stmt,
-        Err(e) => {
-            app.search_status = format!("Error: {}", e);
-            return;
-        }
-    };
-
-    let mut rows = match stmt.query_map(params![search_pattern], |row| {
-        Ok(Employee {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            position: row.get(2)?,
-            address: row.get(3)?,
-            city: row.get(4)?,
-            state: row.get(5)?,
-            phone: row.get(6)?,
-            filing_status: row.get(7)?,
-            dependents: row.get(8)?,
-            pay_rate: row.get(9)?,
-        })
-    }) {
-        Ok(rows) => rows,
-        Err(e) => {
-            app.search_status = format!("Error: {}", e);
-            return;
-        }
-    };
-
-    app.search_result = rows.next().and_then(Result::ok);
-    app.search_status = if app.search_result.is_some() {
-        println!("found employee");
-        "Employee Found".to_string()
-    } else {
-        println!("no employee found");
-        "No employee found".to_string()
-    };
 }
 
 pub fn add_employee(app: &mut PharmacyApp) {
@@ -199,22 +231,19 @@ pub fn delete_payroll_entry(conn: &Connection, id: i64) -> Result<(), rusqlite::
     Ok(())
 }
 
-pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT * FROM payroll")?;
-    let payroll_entries: Vec<PayrollEntry> = stmt
-        .query_map([], |row| {
-            Ok(PayrollEntry {
-                id: row.get(0)?,
-                employee_id: row.get(1)?,
-                hours_worked: row.get(2)?,
-                date_of_pay: row.get(3)?,
-                gross: row.get(4)?,
-                withholding: row.get(5)?,
-                social_security: row.get(6)?,
-                net: row.get(7)?,
-                roth_ira: row.get(8)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(payroll_entries)
+pub fn get_payroll_dates_for_employee(
+    conn: &Connection,
+    employee_id: i32,
+) -> Result<Vec<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT date_of_pay FROM payroll WHERE employee_id = ?1")?;
+
+    let dates_iter = stmt.query_map([employee_id], |row| Ok(row.get::<_, String>(0)?))?;
+    let mut dates = Vec::new();
+    for date in dates_iter {
+        if let Ok(date) = date {
+            dates.push(date)
+        }
+    }
+
+    Ok(dates)
 }

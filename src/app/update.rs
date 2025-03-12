@@ -13,7 +13,7 @@ struct ReleaseInfo {
 
 pub fn perform_update() -> Result<Status, Box<dyn std::error::Error>> {
     let status = self_update::backends::github::Update::configure()
-        .repo_owner("rhino")
+        .repo_owner("rhino78")
         .repo_name("med_arts")
         .bin_name("med_arts")
         .show_download_progress(true)
@@ -25,15 +25,17 @@ pub fn perform_update() -> Result<Status, Box<dyn std::error::Error>> {
 }
 
 pub fn check_for_updates_blocking(
-) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+) -> Result<(Option<String>, String), Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::blocking::Client::new();
     let response = client
-        .get("https://api.github.com/repos/rhino/med_arts/releases/latest")
-        .header("User-Agent", "med_arts")
-        .header("Authorization", "token: poop")
+        .get("https://api.github.com/repos/rhino78/med_arts/releases/latest")
+        .header("User-Agent", "med_arts/1.0 (rshave@gmail.com)")
+        .header(
+            "Authorization",
+            "token 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",
+        )
         .send()?;
 
-    println!("got a response");
     if response.status() != reqwest::StatusCode::OK {
         println!("Status: {}", response.status());
         let error_text = response.text()?;
@@ -49,7 +51,6 @@ pub fn check_for_updates_blocking(
     }
 
     let body = response.text()?;
-    println!("Full response body: {}", body);
 
     let json: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
@@ -59,7 +60,11 @@ pub fn check_for_updates_blocking(
         }
     };
 
-    println!("Parsed JSON: {:#?}", json);
+    let release_notes = json
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("No release notes available")
+        .to_string();
 
     let latest_version_str = match json.get("tag_name") {
         Some(Value::String(s)) => s.trim_start_matches('v').to_string(),
@@ -71,12 +76,17 @@ pub fn check_for_updates_blocking(
 
     println!("Curent Version: {}", current_version);
     println!("Latest Version: {}", latest_version);
+    println!("current notes: {}", release_notes);
 
-    if latest_version > current_version {
-        Ok(Some(latest_version_str.to_string()))
+    let update_available = if latest_version > current_version {
+        Some(latest_version_str)
     } else {
-        Ok(None)
-    }
+        None
+        //println!("No update available");
+        //Some(latest_version_str)
+    };
+
+    Ok((update_available, release_notes))
 }
 
 pub async fn check_for_updates(

@@ -1,23 +1,34 @@
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fs;
+use std::path::Path;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const ALPHA_VANTAGE_API_KEY: &str = "F3ZZV8LPPY32GSA0";
+static STOCK_SERVICE: OnceLock<StockService> = OnceLock::new();
+const CACHE_FILE_PATH: &str = "stock.cache.json";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StockHistoricalData {
     pub dates: Vec<String>,
     pub prices: Vec<f64>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StockQuote {
     pub symbol: String,
     pub current_price: f64,
     pub change: f64,
     pub change_percent: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SerializableStockData {
+    pub quote: StockQuote,
+    pub historical_data: StockHistoricalData,
+    pub fetched_at_timestamp: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -28,19 +39,90 @@ pub struct StockData {
 }
 pub struct StockService {
     client: reqwest::blocking::Client,
-    cached_data: OnceLock<(StockData, StockData)>,
+    cached_data: std::sync::Mutex<Option<(StockData, StockData)>>,
+}
+
+impl StockData {
+    fn to_serializable(&self) -> SerializableStockData {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let elapsed = self.fetched_at.elapsed().as_secs();
+        let timestamp = now - elapsed;
+
+        SerializableStockData {
+            quote: self.quote.clone(),
+            historical_data: self.historical_data.clone(),
+            fetched_at_timestamp: timestamp,
+        }
+    }
+}
+
+impl SerializableStockData {
+    fn to_stock_data(&self) -> StockData {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let age = now - self.fetched_at_timestamp;
+        let fetched_at = Instant::now() - Duration::from_secs(age);
+
+        StockData {
+            quote: self.quote.clone(),
+            historical_data: self.historical_data.clone(),
+            fetched_at,
+        }
+    }
 }
 
 impl StockService {
+    pub fn instance() -> &'static StockService {
+        STOCK_SERVICE.get_or_init(|| StockService::new())
+    }
+
     pub fn new() -> Self {
+        let cached_data = Self::load_cache_from_disk()
+            .map(|data| std::sync::Mutex::new(Some(data)))
+            .unwrap_or_else(|_| std::sync::Mutex::new(None));
+
         Self {
             client: reqwest::blocking::Client::new(),
-            cached_data: OnceLock::new(),
+            cached_data,
         }
     }
 
+    fn load_cache_from_disk() -> Result<(StockData, StockData), Box<dyn std::error::Error>> {
+        if !Path::new(CACHE_FILE_PATH).exists() {
+            return Err("Cache file not found".into());
+        }
+
+        let file_content = fs::read_to_string(CACHE_FILE_PATH)?;
+        let serialized_data: (SerializableStockData, SerializableStockData) =
+            serde_json::from_str(&file_content)?;
+
+        let wba_data = serialized_data.0.to_stock_data();
+        let cvs_data = serialized_data.1.to_stock_data();
+        Ok((wba_data, cvs_data))
+    }
+
+    fn save_cache_to_disk(
+        &self,
+        wba_data: &StockData,
+        cvs_data: &StockData,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let serializable_wba = wba_data.to_serializable();
+        let serializable_cvs = cvs_data.to_serializable();
+
+        let serialized_data = serde_json::to_string(&(serializable_wba, serializable_cvs))?;
+        fs::write(CACHE_FILE_PATH, serialized_data)?;
+
+        Ok(())
+    }
+
     pub fn fetch_stock_data(&self) -> Result<(StockData, StockData), Box<dyn std::error::Error>> {
-        //Walgreens data
+        println!("Fetching stock Data");
+
         let wba_quote = self.fetch_single_stock_quote("WBA")?;
         let wba_historical = self.fetch_single_historical_data("WBA")?;
         let wba_data = StockData {
@@ -48,7 +130,7 @@ impl StockService {
             historical_data: wba_historical,
             fetched_at: Instant::now(),
         };
-        //CVS data
+
         let cvs_quote = self.fetch_single_stock_quote("CVS")?;
         let cvs_historical = self.fetch_single_historical_data("CVS")?;
         let cvs_data = StockData {
@@ -57,18 +139,33 @@ impl StockService {
             fetched_at: Instant::now(),
         };
 
+        if let Err(e) = self.save_cache_to_disk(&wba_data, &cvs_data) {
+            println!("Failed to save cache: {}", e);
+        } else {
+            println!("Saved cache to disk");
+        }
         Ok((wba_data, cvs_data))
     }
 
     pub fn get_stock_data(&self) -> Result<(StockData, StockData), Box<dyn std::error::Error>> {
-        if let Some((wba_data, cvs_data)) = self.cached_data.get() {
-            if wba_data.fetched_at.elapsed() < Duration::from_secs(24 * 60 * 60) {
-                return Ok((wba_data.clone(), cvs_data.clone()));
+        {
+            let cache = self.cached_data.lock().unwrap();
+            if let Some((wba_data, cvs_data)) = &*cache {
+                //println!("wba_data.fetched_at {:?}", wba_data.fetched_at);
+                if wba_data.fetched_at.elapsed() < Duration::from_secs(24 * 60 * 60) {
+                    //println!("Cached stock data is still fresh");
+                    return Ok((wba_data.clone(), cvs_data.clone()));
+                }
             }
         }
 
+        println!("Cached data is stale, fetching new");
         let stock_data = self.fetch_stock_data()?;
-        self.cached_data.get_or_init(|| stock_data.clone());
+        {
+            let mut cache = self.cached_data.lock().unwrap();
+            *cache = Some(stock_data.clone());
+        }
+
         Ok(stock_data)
     }
 
@@ -112,6 +209,8 @@ impl StockService {
             symbol, ALPHA_VANTAGE_API_KEY
         );
 
+        //we should only get here one time
+        println!("fetching: {}", url);
         let response = self.client.get(&url).send()?;
         let json: Value = response.json()?;
         let foo = json.get("Information");

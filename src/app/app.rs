@@ -2,20 +2,18 @@ use std::result;
 
 use self::employee::Employee;
 use crate::app::database;
-use crate::app::stockservice;
-use crate::app::ui::render_employees;
+use crate::app::employee::render_employees;
+use crate::app::home::render_home;
+use crate::app::update::perform_update;
 use chrono::NaiveDate;
 use poll_promise::Promise;
 
 pub use super::employee;
-use crate::app::ui::render_payroll;
+use crate::app::admin::render_admin;
+use crate::app::payroll::render_payroll;
 use crate::app::update::check_for_updates_blocking;
-use crate::app::update::perform_update;
 use chrono::Datelike;
 use eframe::egui;
-use egui_plot::{Line, Plot, PlotPoints};
-use plotters::prelude::*;
-//use plotters_backend::DrawingBackend;
 use rusqlite::params;
 use rusqlite::Connection;
 
@@ -51,17 +49,18 @@ pub struct PharmacyApp {
     pub roth_ira: f32,
     pub social_security: f32,
     pub selected_friday: String,
-    pub net: f32,
-    pub gross: f32,
     pub pay_rate: String,
 
-    update_check:
-        Option<Promise<Result<Option<String>, Box<dyn std::error::Error + Send + Sync + 'static>>>>,
-    update_available: Option<String>,
-    update_error: Option<String>,
+    pub update_check:
+        Option<Promise<Result<(Option<String>, String), Box<dyn std::error::Error + Send + Sync>>>>,
+    pub update_available: Option<String>,
+    pub release_notes: Option<String>,
+    pub update_error: Option<String>,
     pub selected_employee_id: Option<i32>,
-    //selected_employee: Option<Employee>,
+    pub selected_employee_index: usize,
     pub show_add_employee_popup: bool,
+    pub gross: f32,
+    pub net: f32,
 }
 
 impl Default for PharmacyApp {
@@ -71,26 +70,6 @@ impl Default for PharmacyApp {
 }
 
 impl PharmacyApp {
-    pub fn get_all_employees(&self) -> result::Result<Vec<Employee>, rusqlite::Error> {
-        database::get_all_employees(&self.conn)
-    }
-
-    pub fn calculate_gross(&self, hours_worked: f32, pay_rate: f32) -> f32 {
-        hours_worked * pay_rate
-    }
-
-    pub fn calculate_withholding(&self, gross: f32) -> f32 {
-        gross * 0.2
-    }
-
-    pub fn calculate_social_security(&self, gross: f32) -> f32 {
-        gross * 0.075
-    }
-
-    pub fn calculate_net(&self, gross: f32, withholding: f32, social_security: f32) -> f32 {
-        gross - withholding - social_security
-    }
-
     pub fn new() -> Self {
         let db_path = database::get_db_path();
         let conn = rusqlite::Connection::open(&db_path).unwrap_or_else(|e| {
@@ -135,42 +114,151 @@ impl PharmacyApp {
             update_error: None,
             selected_employee_id: None,
             show_add_employee_popup: false,
+            selected_employee_index: 0,
+            release_notes: None,
         };
 
         app.employees = database::get_all_employees(&app.conn).expect("Failed to get employees");
         app
     }
 
-    fn check_for_update(&mut self) {
+    pub fn get_all_employees(
+        app: &mut PharmacyApp,
+    ) -> result::Result<Vec<Employee>, rusqlite::Error> {
+        database::get_all_employees(&app.conn)
+    }
+
+    pub fn check_for_update(&mut self) {
         self.update_check = Some(Promise::spawn_thread("update_check", || {
             check_for_updates_blocking()
         }));
     }
 
-    fn render_update_status(&mut self, ui: &mut egui::Ui) {
+    pub fn render_update_status_detailed(&mut self, ui: &mut egui::Ui) {
         if let Some(promise) = &self.update_check {
-            if promise.ready().is_none() {
+            if let Some(result) = promise.ready() {
+                match result {
+                    Ok((Some(version), notes)) => {
+                        self.update_available = Some(version.to_string());
+                        self.release_notes = Some(notes.to_string());
+                        self.update_error = None;
+                    }
+                    Ok((None, notes)) => {
+                        self.update_error = None;
+                        self.update_available = None;
+                        self.release_notes = Some(notes.to_string());
+                    }
+
+                    Err(e) => {
+                        self.update_error = Some(e.to_string());
+                        self.update_available = None;
+                        self.release_notes = None;
+                    }
+                }
+            } else {
                 ui.spinner();
-                ui.label("checking for updates");
+                ui.label("Checking for Updates");
                 return;
             }
-        }
 
-        if let Some(promise) = self.update_check.take() {
-            match promise.block_and_take() {
-                Ok(Some(version)) => {
-                    self.update_available = Some(version);
-                    self.update_error = None;
-                }
-                Ok(None) => {
-                    self.update_error = None;
-                    self.update_available = None;
-                }
-                Err(e) => {
-                    self.update_error = Some(e.to_string());
-                    self.update_available = None;
+            if let Some(error) = &self.update_error {
+                ui.colored_label(egui::Color32::RED, format!("Update Error: {}", error));
+            } else if let Some(version) = &self.update_available {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_GREEN,
+                        format!("Update Available: {}", version),
+                    );
+                    if ui.button("Download").clicked() {
+                        perform_update();
+                    }
+                });
+            } else {
+                ui.label("You are running the latest version");
+            }
+
+            if let Some(notes) = &self.release_notes {
+                ui.separator();
+                ui.label("Release notes");
+                ui.label(notes);
+            }
+        }
+    }
+
+    pub fn render_update_status_brief(&mut self, ui: &mut egui::Ui) {
+        if let Some(promise) = &self.update_check {
+            if let Some(result) = promise.ready() {
+                if promise.ready().is_none() {
+                    ui.spinner();
+                    ui.label("Checking for Updates");
+                    return;
                 }
             }
+
+            if let Some(error) = &self.update_error {
+                ui.colored_label(egui::Color32::RED, "Update Error");
+            } else if let Some(version) = &self.update_available {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_GREEN,
+                        format!("Update Available: {}", version),
+                    );
+                    if ui.button("Download").clicked() {
+                        perform_update();
+                    }
+                });
+            } else {
+                ui.label("Latest version");
+            }
+        }
+    }
+    pub fn render_update_status(&mut self, ui: &mut egui::Ui) {
+        if let Some(promise) = &self.update_check {
+            if let Some(result) = promise.ready() {
+                match result {
+                    Ok((Some(version), notes)) => {
+                        self.update_available = Some(version.to_string());
+                        self.release_notes = Some(notes.to_string());
+                        self.update_error = None;
+                    }
+                    Ok((None, notes)) => {
+                        self.update_error = None;
+                        self.update_available = None;
+                        self.release_notes = Some(notes.to_string());
+                    }
+                    Err(e) => {
+                        self.update_error = Some(e.to_string());
+                        self.update_available = None;
+                        self.release_notes = None;
+                    }
+                }
+            } else {
+                ui.spinner();
+                ui.label("Checking for updates....");
+                return;
+            }
+
+            if let Some(error) = &self.update_error {
+                ui.colored_label(egui::Color32::RED, format!("Update Error: {}", error));
+            } else if let Some(version) = &self.update_available {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_GREEN,
+                        format!("Update Available: {}", version),
+                    );
+                    if ui.button("Download").clicked() {
+                        perform_update();
+                    }
+                });
+            } else {
+                ui.label("You are running the latest version");
+            }
+
+            //if let Some(notes) = &self.release_notes {
+            //    ui.separator();
+            //    ui.label("Release notes");
+            //    ui.label(notes);
+            //}
         }
     }
 
@@ -199,8 +287,37 @@ impl PharmacyApp {
         if !self.employee_name.is_empty() && !self.employee_position.is_empty() {
             self.conn
                 .execute(
-                    "INSERT INTO employees (name, position, address, city, state, phone, filing_status, dependents, pay_rate) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    params![&self.employee_name, &self.employee_position, &self.address, &self.city, &self.state, &self.phone, &self.filing_status, &self.dependents, &self.pay_rate],
+                    "INSERT INTO employees (
+                                name,
+                                position,
+                                address,
+                                city,
+                                state,
+                                phone,
+                                filing_status,
+                                dependents,
+                                pay_rate) 
+                                VALUES (
+                                ?1,
+                                ?2,
+                                ?3,
+                                ?4,
+                                ?5,
+                                ?6,
+                                ?7,
+                                ?8,
+                                ?9)",
+                    params![
+                        &self.employee_name,
+                        &self.employee_position,
+                        &self.address,
+                        &self.city,
+                        &self.state,
+                        &self.phone,
+                        &self.filing_status,
+                        &self.dependents,
+                        &self.pay_rate
+                    ],
                 )
                 .expect("Failed to add employee");
             self.search_status = "Employee added successfully".to_string();
@@ -216,136 +333,6 @@ impl PharmacyApp {
         } else {
             self.search_status = "Please enter both name and position".to_string();
             println!("error adding employee");
-        }
-    }
-
-    fn render_home(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Welcome to the Home Page");
-        ui.heading("Stock Prices");
-
-        let stock_service = stockservice::StockService::new();
-        match stock_service.get_stock_data() {
-            Ok((wba_data, cvs_data)) => {
-                ui.horizontal(|ui| {
-                    // Walgreens Stock
-                    ui.vertical(|ui| {
-                        let walgreens = &wba_data.quote;
-                        ui.label(format!("Walgreens (WBA)"));
-                        ui.label(format!("Price: ${:.2}", walgreens.current_price));
-                        ui.colored_label(
-                            if walgreens.change >= 0.0 {
-                                egui::Color32::GREEN
-                            } else {
-                                egui::Color32::RED
-                            },
-                            format!(
-                                "Change: {:.2} ({:.2}%)",
-                                walgreens.change, walgreens.change_percent
-                            ),
-                        );
-
-                        //// Create chart using historical data
-                        //let plot_points: PlotPoints = PlotPoints::new(
-                        //    wba_data
-                        //        .historical_data
-                        //        .prices
-                        //        .iter()
-                        //        .enumerate()
-                        //        .map(|(i, &price)| [i as f64, price])
-                        //        .collect(),
-                        //);
-                        //
-                        //Plot::new("WBA_chart").height(200.0).show(ui, |plot_ui| {
-                        //    plot_ui.line(
-                        //        egui_plot::Line::new(plot_points).name("Walgreens Stock Price"),
-                        //    );
-                        //});
-                        //
-                        // Display dates
-                        ui.horizontal(|ui| {
-                            for date in &wba_data.historical_data.dates {
-                                ui.label(date);
-                            }
-                        });
-                    });
-
-                    ui.add_space(20.0);
-
-                    // CVS Stock (similar implementation)
-                    ui.vertical(|ui| {
-                        let cvs = &cvs_data.quote;
-                        ui.label(format!("CVS (CVS)"));
-                        ui.label(format!("Price: ${:.2}", cvs.current_price));
-                        ui.colored_label(
-                            if cvs.change >= 0.0 {
-                                egui::Color32::GREEN
-                            } else {
-                                egui::Color32::RED
-                            },
-                            format!("Change: {:.2} ({:.2}%)", cvs.change, cvs.change_percent),
-                        );
-
-                        //// Create chart using historical data
-                        //let plot_points: PlotPoints = PlotPoints::new(
-                        //    cvs_data
-                        //        .historical_data
-                        //        .prices
-                        //        .iter()
-                        //        .enumerate()
-                        //        .map(|(i, &price)| [i as f64, price])
-                        //        .collect(),
-                        //);
-                        //
-                        //Plot::new("CVS_chart").height(200.0).show(ui, |plot_ui| {
-                        //    plot_ui.line(egui_plot::Line::new(plot_points).name("CVS Stock Price"));
-                        //});
-
-                        // Display dates
-                        ui.horizontal(|ui| {
-                            for date in &cvs_data.historical_data.dates {
-                                ui.label(date);
-                            }
-                        });
-                    });
-                });
-            }
-            Err(e) => {
-                ui.label(format!("Error fetching stock data: {}", e));
-            }
-        }
-
-        //additional content can go here
-        ui.add_space(20.0);
-        ui.heading("Welcome to the Medical Arts Pharmacy Payroll System");
-        ui.heading("Manage your pharmacy's employee information and payroll with ease");
-    }
-
-    fn render_admin(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Admin Panel");
-        ui.label("Manage administrative settings here.");
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Application Updates");
-            if ui.button("Check for Updates").clicked() {
-                self.check_for_update();
-            }
-        });
-
-        if let Some(error) = &self.update_error {
-            ui.colored_label(egui::Color32::RED, "Update Error: ");
-            ui.label(error);
-        }
-
-        if let Some(version) = &self.update_available {
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    format!("Update available: {}", version),
-                );
-                if ui.button("Download").clicked() {
-                    perform_update();
-                }
-            });
         }
     }
 
@@ -370,6 +357,29 @@ impl PharmacyApp {
             println!("Payroll saved for {}!", employee.name);
         }
     }
+
+    pub fn refresh_available_fridays(&mut self) {
+        if self.selected_employee_index < self.employees.len() {
+            let employee_id = self.employees[self.selected_employee_index].id;
+            let available_fridays = get_available_fridays(&self.conn, employee_id);
+            if !available_fridays.is_empty() {
+                self.selected_friday = available_fridays[0].clone();
+            }
+        }
+    }
+}
+
+pub fn get_available_fridays(conn: &Connection, employee_id: i32) -> Vec<String> {
+    let all_fridays = get_fridays_of_year();
+    let used_dates = match database::get_payroll_dates_for_employee(conn, employee_id) {
+        Ok(dates) => dates,
+        Err(_) => Vec::new(),
+    };
+
+    all_fridays
+        .into_iter()
+        .filter(|date| !used_dates.contains(date))
+        .collect()
 }
 
 pub fn get_fridays_of_year() -> Vec<String> {
@@ -412,14 +422,14 @@ impl eframe::App for PharmacyApp {
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                self.render_update_status(ui);
+                self.render_update_status_brief(ui);
             });
         });
 
         // Dynamically change the entire CentralPanel based on the selected button
         egui::CentralPanel::default().show(ctx, |ui| match self.active_panel {
-            ActivePanel::Home => self.render_home(ui),
-            ActivePanel::Admin => self.render_admin(ui),
+            ActivePanel::Home => render_home(self, ui),
+            ActivePanel::Admin => render_admin(self, ui),
             ActivePanel::Payroll => render_payroll(self, ui),
             ActivePanel::Employees => render_employees(self, ui),
         });

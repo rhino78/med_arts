@@ -2,16 +2,12 @@ pub mod app;
 
 #[cfg(test)]
 mod tests {
-    use crate::app::app::ActivePanel;
     use crate::app::app::PharmacyApp;
+    use crate::app::database;
     use crate::app::employee::Employee;
+    use crate::app::payroll;
     use rusqlite::Connection;
     use rusqlite::Result;
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 
     fn setup_test_db() -> Result<Connection> {
         let conn = Connection::open_in_memory().expect("Failed to create test database");
@@ -36,7 +32,7 @@ mod tests {
             id INTEGER PRIMARY KEY,
             employee_id INTEGER,
             hours_worked REAL,
-            pay_date TEXT,
+            date_of_pay TEXT,
             gross REAL,
             withholding REAL,
             social_security REAL,   
@@ -93,59 +89,33 @@ mod tests {
             [],
         )?;
 
-        Ok(conn)
-    }
-
-    #[test]
-    fn test_calculate_net() {
-        let app = PharmacyApp::new();
-        let gross = 1000.0;
-        let withholding = 100.0;
-        let social_security = 75.0;
-        let expected_net = 825.0;
-        assert_eq!(
-            app.calculate_net(gross, withholding, social_security),
-            expected_net
-        );
-    }
-
-    #[test]
-    fn test_calculate_social_security() {
-        let app = PharmacyApp::new();
-        let gross = 1000.0;
-        let expected_social_security = 75.0;
-        assert_eq!(
-            app.calculate_social_security(gross),
-            expected_social_security
-        );
-    }
-
-    #[test]
-    fn test_calculate_withholding() {
-        let app = PharmacyApp::new();
-        let gross = 1000.0;
-        let expected_withholding = 200.0;
-        assert_eq!(app.calculate_withholding(gross), expected_withholding);
-    }
-
-    #[test]
-    fn test_calculate_gross() {
-        let app = PharmacyApp::new();
-        let hours_worked = 40.0;
-        let pay_rate = 20.0;
-        let expected_gross = 800.0;
-        assert_eq!(app.calculate_gross(hours_worked, pay_rate), expected_gross);
-    }
-
-    #[test]
-    fn test_add_payroll_entry() {
-        let conn = setup_test_db().expect("Failed to create test database");
+        conn.execute(
+            "INSERT INTO payroll (
+                employee_id,
+                hours_worked,
+                date_of_pay,
+                gross,
+                withholding,
+                social_security,
+                net,
+                roth_ira) 
+            VALUES (
+                1,
+                '8.0',
+                '2023-07-01',
+                800.0,
+                200.0,
+                75.0,
+                625.0,
+                0.0)",
+            [],
+        )?;
 
         conn.execute(
             "INSERT INTO payroll (
                 employee_id,
                 hours_worked,
-                pay_date,
+                date_of_pay,
                 gross,
                 withholding,
                 social_security,
@@ -161,14 +131,73 @@ mod tests {
                 625.0,
                 0.0)",
             [],
-        )
-        .expect("Failed to add payroll entry");
+        )?;
+
+        Ok(conn)
+    }
+
+    #[test]
+    fn test_net_pay_calculation_subtracts_withholding_and_ss() {
+        //let app = PharmacyApp::new();
+        let gross = 1000.0;
+        let withholding = 100.0;
+        let social_security = 75.0;
+        let expected_net = 825.0;
+        assert_eq!(
+            payroll::calculate_net(gross, withholding, social_security),
+            expected_net
+        );
+    }
+
+    #[test]
+    fn test_calculate_social_security() {
+        //let app = PharmacyApp::new();
+        let gross = 1000.0;
+        let expected_social_security = 75.0;
+        assert_eq!(
+            payroll::calculate_social_security(gross),
+            expected_social_security
+        );
+    }
+
+    #[test]
+    fn test_calculate_withholding() {
+        //let app = PharmacyApp::new();
+        let gross = 1000.0;
+        let expected_withholding = 200.0;
+        assert_eq!(payroll::calculate_withholding(gross), expected_withholding);
+    }
+
+    #[test]
+    fn test_calculate_gross() {
+        //let app = PharmacyApp::new();
+        let hours_worked = 40.0;
+        let pay_rate = 20.0;
+        let expected_gross = 800.0;
+        assert_eq!(
+            payroll::calculate_gross(hours_worked, pay_rate),
+            expected_gross
+        );
+    }
+
+    #[test]
+    fn test_add_payroll_entry() {
+        let conn = setup_test_db().expect("Failed to create test database");
 
         let mut stmt = conn
             .prepare("SELECT hours_worked from payroll WHERE employee_id = 1")
             .unwrap();
         let hours: f64 = stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(hours, 8.0, "Payroll entry should have been added");
+    }
+
+    #[test]
+    fn select_payroll_entry() {
+        let conn = setup_test_db().expect("Failed to create test database");
+
+        let result = database::get_payroll_by_id(&conn, 1).expect("Failed to select payroll entry");
+        let hours = result[0].hours_worked;
+        assert_eq!(hours, 8.0, "Payroll entry should have been selected");
     }
 
     #[test]
@@ -226,6 +255,10 @@ mod tests {
     #[test]
     fn test_delete_employee() {
         let conn = setup_test_db().expect("Failed to create test database");
+
+        conn.execute("DELETE FROM payroll WHERE employee_id = '1'", [])
+            .expect("Failed to delete employee");
+
         conn.execute("DELETE FROM employees WHERE name = 'Bob'", [])
             .expect("Failed to delete employee");
 
@@ -267,40 +300,22 @@ mod tests {
         );
     }
 
+    fn create_test_app() -> PharmacyApp {
+        let conn = setup_test_db().expect("Failed to create test database");
+
+        let mut app = PharmacyApp::new();
+        app.conn = conn;
+
+        app.employees = vec![];
+        app
+    }
+
     #[test]
     fn test_get_all_employees() {
-        let conn = setup_test_db().expect("Failed to create test database");
-        // Create an instance of PharmacyApp with the test database
-        let app = PharmacyApp {
-            search_result: None,
-            active_panel: ActivePanel::Home,
-            admin_text: String::new(),
-            employee_name: String::new(),
-            search_name: String::new(),
-            search_status: String::new(),
-            employee_position: String::new(),
-            conn,
-            employees: vec![],
-            selected_employee: None,
-            payroll_entries: [0.0; 7],
-            address: String::new(),
-            city: String::new(),
-            state: String::new(),
-            phone: String::new(),
-            filing_status: String::new(),
-            dependents: String::new(),
-            hours_worked: 0.0,
-            withholding: 0.0,
-            roth_ira: 0.0,
-            social_security: 0.0,
-            selected_friday: String::new(),
-            net: 0.0,
-            gross: 0.0,
-            pay_rate: String::new(),
-        };
-
+        let mut app = create_test_app();
         // Call get_all_employees()
-        let employees = app.get_all_employees().expect("Failed to fetch employees");
+        let employees =
+            PharmacyApp::get_all_employees(&mut app).expect("Failed to fetch employees");
 
         // Assertions
         assert_eq!(employees.len(), 2, "Expected 2 employees in the database");
