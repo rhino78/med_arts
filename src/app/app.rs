@@ -1,9 +1,9 @@
-use std::result;
-
 use self::employee::Employee;
 use crate::app::database;
 use crate::app::employee::render_employees;
 use crate::app::home::render_home;
+use crate::app::settings::render_settings;
+use crate::app::settings::UiSettings;
 use crate::app::update::perform_update;
 use chrono::NaiveDate;
 use poll_promise::Promise;
@@ -14,7 +14,6 @@ use crate::app::payroll::render_payroll;
 use crate::app::update::check_for_updates_blocking;
 use chrono::Datelike;
 use eframe::egui;
-use rusqlite::params;
 use rusqlite::Connection;
 
 #[derive(PartialEq)]
@@ -23,8 +22,10 @@ pub enum ActivePanel {
     Admin = 1,
     Payroll = 2,
     Employees = 3,
+    Settings = 4,
 }
 
+#[allow(dead_code)]
 pub struct PharmacyApp {
     pub active_panel: ActivePanel,
     pub admin_text: String,
@@ -61,6 +62,8 @@ pub struct PharmacyApp {
     pub show_add_employee_popup: bool,
     pub gross: f32,
     pub net: f32,
+
+    pub ui_settings: UiSettings,
 }
 
 impl Default for PharmacyApp {
@@ -81,6 +84,8 @@ impl PharmacyApp {
 
         let fridays = get_fridays_of_year();
         let selected_friday = fridays.first().cloned().unwrap_or_default();
+
+        let ui_settings = UiSettings::load();
 
         let mut app = Self {
             active_panel: ActivePanel::Home,
@@ -116,16 +121,31 @@ impl PharmacyApp {
             show_add_employee_popup: false,
             selected_employee_index: 0,
             release_notes: None,
+
+            ui_settings,
         };
 
         app.employees = database::get_all_employees(&app.conn).expect("Failed to get employees");
         app
     }
 
-    pub fn get_all_employees(
-        app: &mut PharmacyApp,
-    ) -> result::Result<Vec<Employee>, rusqlite::Error> {
-        database::get_all_employees(&app.conn)
+    pub fn apply_text_style(&self, ctx: &egui::Context) {
+        let mut style = (*ctx.style()).clone();
+
+        style.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::new(self.ui_settings.font_size, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Button,
+            egui::FontId::new(self.ui_settings.font_size, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Heading,
+            egui::FontId::new(self.ui_settings.font_size, egui::FontFamily::Proportional),
+        );
+
+        ctx.set_style(style);
     }
 
     pub fn check_for_update(&mut self) {
@@ -170,7 +190,7 @@ impl PharmacyApp {
                         format!("Update Available: {}", version),
                     );
                     if ui.button("Download").clicked() {
-                        perform_update();
+                        let _ = perform_update();
                     }
                 });
             } else {
@@ -187,7 +207,7 @@ impl PharmacyApp {
 
     pub fn render_update_status_brief(&mut self, ui: &mut egui::Ui) {
         if let Some(promise) = &self.update_check {
-            if let Some(result) = promise.ready() {
+            if let Some(_result) = promise.ready() {
                 if promise.ready().is_none() {
                     ui.spinner();
                     ui.label("Checking for Updates");
@@ -195,7 +215,7 @@ impl PharmacyApp {
                 }
             }
 
-            if let Some(error) = &self.update_error {
+            if let Some(_error) = &self.update_error {
                 ui.colored_label(egui::Color32::RED, "Update Error");
             } else if let Some(version) = &self.update_available {
                 ui.horizontal(|ui| {
@@ -204,157 +224,12 @@ impl PharmacyApp {
                         format!("Update Available: {}", version),
                     );
                     if ui.button("Download").clicked() {
-                        perform_update();
+                        let _ = perform_update();
                     }
                 });
             } else {
                 ui.label("Latest version");
             }
-        }
-    }
-    pub fn render_update_status(&mut self, ui: &mut egui::Ui) {
-        if let Some(promise) = &self.update_check {
-            if let Some(result) = promise.ready() {
-                match result {
-                    Ok((Some(version), notes)) => {
-                        self.update_available = Some(version.to_string());
-                        self.release_notes = Some(notes.to_string());
-                        self.update_error = None;
-                    }
-                    Ok((None, notes)) => {
-                        self.update_error = None;
-                        self.update_available = None;
-                        self.release_notes = Some(notes.to_string());
-                    }
-                    Err(e) => {
-                        self.update_error = Some(e.to_string());
-                        self.update_available = None;
-                        self.release_notes = None;
-                    }
-                }
-            } else {
-                ui.spinner();
-                ui.label("Checking for updates....");
-                return;
-            }
-
-            if let Some(error) = &self.update_error {
-                ui.colored_label(egui::Color32::RED, format!("Update Error: {}", error));
-            } else if let Some(version) = &self.update_available {
-                ui.horizontal(|ui| {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_GREEN,
-                        format!("Update Available: {}", version),
-                    );
-                    if ui.button("Download").clicked() {
-                        perform_update();
-                    }
-                });
-            } else {
-                ui.label("You are running the latest version");
-            }
-
-            //if let Some(notes) = &self.release_notes {
-            //    ui.separator();
-            //    ui.label("Release notes");
-            //    ui.label(notes);
-            //}
-        }
-    }
-
-    fn add_employee(&mut self) {
-        let mandatory_fields = [
-            (&self.employee_name, "Employee Name"),
-            (&self.employee_position, "Employee Position"),
-            (&self.pay_rate, "Pay Rate"),
-        ];
-
-        let mut missing_fields = Vec::new();
-        for (field, field_name) in mandatory_fields.iter() {
-            if field.is_empty() {
-                missing_fields.push(*field_name);
-            }
-        }
-
-        if !missing_fields.is_empty() {
-            self.search_status = format!(
-                "Please enter the following fields: {}",
-                missing_fields.join(", ")
-            );
-            return;
-        }
-
-        if !self.employee_name.is_empty() && !self.employee_position.is_empty() {
-            self.conn
-                .execute(
-                    "INSERT INTO employees (
-                                name,
-                                position,
-                                address,
-                                city,
-                                state,
-                                phone,
-                                filing_status,
-                                dependents,
-                                pay_rate) 
-                                VALUES (
-                                ?1,
-                                ?2,
-                                ?3,
-                                ?4,
-                                ?5,
-                                ?6,
-                                ?7,
-                                ?8,
-                                ?9)",
-                    params![
-                        &self.employee_name,
-                        &self.employee_position,
-                        &self.address,
-                        &self.city,
-                        &self.state,
-                        &self.phone,
-                        &self.filing_status,
-                        &self.dependents,
-                        &self.pay_rate
-                    ],
-                )
-                .expect("Failed to add employee");
-            self.search_status = "Employee added successfully".to_string();
-            self.employee_name.clear();
-            self.employee_position.clear();
-            self.address.clear();
-            self.city.clear();
-            self.state.clear();
-            self.phone.clear();
-            self.filing_status.clear();
-            self.dependents.clear();
-            self.pay_rate.clear();
-        } else {
-            self.search_status = "Please enter both name and position".to_string();
-            println!("error adding employee");
-        }
-    }
-
-    fn save_payroll(&mut self) {
-        if let Some(employee) = &self.selected_employee {
-            let _today = chrono::Local::now().format("%Y-%m-%d").to_string();
-            for (i, &hours) in self.payroll_entries.iter().enumerate() {
-                let date = chrono::Local::now()
-                    .naive_local()
-                    .date()
-                    .checked_add_days(chrono::Days::new(i as u64))
-                    .expect("Date calculation failed");
-                let date_str = date.format("%Y-%m-%d").to_string();
-
-                self.conn
-                    .execute(
-                        "INSERT INTO payroll (employee_id, date, hours) VALUES(?1, ?2, ?3)",
-                        rusqlite::params![employee.id, date_str, hours],
-                    )
-                    .expect("Failed to save payroll");
-            }
-            println!("Payroll saved for {}!", employee.name);
         }
     }
 
@@ -401,6 +276,7 @@ pub fn get_fridays_of_year() -> Vec<String> {
 
 impl eframe::App for PharmacyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.apply_text_style(ctx);
         // Create the top bar with buttons
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -416,6 +292,9 @@ impl eframe::App for PharmacyApp {
                 if ui.button("Home").clicked() {
                     self.active_panel = ActivePanel::Home;
                 }
+                if ui.button("⚙ Settings").clicked() {
+                    self.active_panel = ActivePanel::Settings;
+                }
                 if ui.button("Close").clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -428,10 +307,11 @@ impl eframe::App for PharmacyApp {
 
         // Dynamically change the entire CentralPanel based on the selected button
         egui::CentralPanel::default().show(ctx, |ui| match self.active_panel {
-            ActivePanel::Home => render_home(self, ui),
+            ActivePanel::Home => render_home(ui),
             ActivePanel::Admin => render_admin(self, ui),
             ActivePanel::Payroll => render_payroll(self, ui),
             ActivePanel::Employees => render_employees(self, ui),
+            ActivePanel::Settings => render_settings(self, ui),
         });
     }
 }

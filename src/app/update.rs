@@ -1,3 +1,5 @@
+use std::env;
+
 use reqwest;
 use self_update::{cargo_crate_version, Status};
 use semver::Version;
@@ -26,13 +28,20 @@ pub fn perform_update() -> Result<Status, Box<dyn std::error::Error>> {
 
 pub fn check_for_updates_blocking(
 ) -> Result<(Option<String>, String), Box<dyn std::error::Error + Send + Sync>> {
+    //println!("the token is: {}", env::var("GITHUB_TOKEN").unwrap());
+    match env::var("GITHUB_TOKEN") {
+        Ok(s) => _ = s,
+        Err(e) => {
+            return Err(format!("No token: {}", e).into());
+        }
+    }
     let client = reqwest::blocking::Client::new();
     let response = client
         .get("https://api.github.com/repos/rhino78/med_arts/releases/latest")
         .header("User-Agent", "med_arts/1.0 (rshave@gmail.com)")
         .header(
             "Authorization",
-            "token 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",
+            format!("token {}", env::var("GITHUB_TOKEN").unwrap()), //"token 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",
         )
         .send()?;
 
@@ -87,31 +96,4 @@ pub fn check_for_updates_blocking(
     };
 
     Ok((update_available, release_notes))
-}
-
-pub async fn check_for_updates(
-) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://api.github.com/repos/rhino/med_arts/releases/latest")
-        .header("User-Agent", "med_arts")
-        .send()
-        .await?;
-
-    let release_info: ReleaseInfo = response.json().await?;
-    //let latest_version_str = release_info.tag_name.trim_start_matches("v");
-    let latest_version_str = release_info
-        .tag_name
-        .as_ref()
-        .map(|tag| tag.trim_start_matches("v").to_string())
-        .unwrap_or_default();
-
-    let current_version = Version::parse(CURRENT_VERSION)?;
-    let latest_version = Version::parse(&latest_version_str)?;
-
-    if latest_version > current_version {
-        Ok(Some(latest_version_str.to_string()))
-    } else {
-        Ok(None)
-    }
 }

@@ -4,5 +4,6 @@ pub mod database;
 pub mod employee;
 pub mod home;
 pub mod payroll;
+pub mod settings;
 pub mod stockservice;
 pub mod update;

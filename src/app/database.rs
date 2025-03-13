@@ -5,6 +5,7 @@ use rusqlite::params;
 use rusqlite::Connection;
 use std::path::PathBuf;
 
+#[allow(dead_code)]
 pub fn get_employee_payroll_history(
     conn: &Connection,
     id: i32,
@@ -38,6 +39,7 @@ pub fn get_employee_payroll_history(
     )
 }
 
+#[allow(dead_code)]
 pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT * FROM payroll WHERE employee_id = ?1    ")?;
     let payroll_entries: Vec<PayrollEntry> = stmt
@@ -58,8 +60,10 @@ pub fn get_all_payroll_entries(conn: &Connection) -> Result<Vec<PayrollEntry>, r
     Ok(payroll_entries)
 }
 
+#[allow(dead_code)]
 pub fn get_payroll_by_id(conn: &Connection, id: i32) -> Result<Vec<PayrollEntry>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT * FROM payroll WHERE employee_id = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT * FROM payroll WHERE employee_id = ?1 ORDER BY date_of_pay")?;
     let payroll_entries: Vec<PayrollEntry> = stmt
         .query_map([id], |row| {
             Ok(PayrollEntry {
@@ -78,6 +82,7 @@ pub fn get_payroll_by_id(conn: &Connection, id: i32) -> Result<Vec<PayrollEntry>
     Ok(payroll_entries)
 }
 
+#[allow(dead_code)]
 pub fn get_employee_by_id(conn: &Connection, id: i32) -> Result<Employee, rusqlite::Error> {
     conn.query_row(
         "SELECT id, name, position, address, city, state, phone, filing_status, dependents, pay_rate FROM employees WHERE id = ?1",
@@ -99,6 +104,7 @@ pub fn get_employee_by_id(conn: &Connection, id: i32) -> Result<Employee, rusqli
     )
 }
 
+#[allow(dead_code)]
 pub fn add_employee(app: &mut PharmacyApp) {
     let mandatory_fields = [
         (&app.employee_name, "Employee Name"),
@@ -163,6 +169,8 @@ pub fn add_employee(app: &mut PharmacyApp) {
         println!("error adding employee");
     }
 }
+
+#[allow(dead_code)]
 pub fn get_all_employees(conn: &Connection) -> Result<Vec<Employee>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT * FROM employees")?;
     let employees: Vec<Employee> = stmt

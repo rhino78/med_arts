@@ -1,7 +1,6 @@
 use super::database;
 use crate::app::app::PharmacyApp;
 use crate::app::database::add_employee;
-use crate::app::database::get_employee_payroll_history;
 use crate::app::database::get_payroll_by_id;
 use egui::Ui;
 use serde::{Deserialize, Serialize};

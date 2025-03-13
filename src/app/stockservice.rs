@@ -65,8 +65,16 @@ impl SerializableStockData {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let age = now - self.fetched_at_timestamp;
-        let fetched_at = Instant::now() - Duration::from_secs(age);
+        //let age = now - self.fetched_at_timestamp;
+        let age = now.saturating_sub(self.fetched_at_timestamp);
+        const MAX_AGE: u64 = 60 * 60 * 24 * 30;
+
+        let safe_age = if age > MAX_AGE { MAX_AGE } else { age };
+
+        //let fetched_at = Instant::now() - Duration::from_secs(age);
+        let fetched_at = Instant::now()
+            .checked_sub(Duration::from_secs(safe_age))
+            .unwrap_or_else(|| Instant::now());
 
         StockData {
             quote: self.quote.clone(),
@@ -213,7 +221,6 @@ impl StockService {
         println!("fetching: {}", url);
         let response = self.client.get(&url).send()?;
         let json: Value = response.json()?;
-        let foo = json.get("Information");
         let yes = json.to_string();
 
         if yes.contains("Information") {
@@ -239,26 +246,5 @@ impl StockService {
                     .parse()?,
             })
         }
-    }
-
-    pub fn get_stock_quote(&self, symbol: &str) -> Result<StockQuote, reqwest::Error> {
-        Ok(StockQuote {
-            symbol: symbol.to_string(),
-            current_price: match symbol {
-                "WBA" => 23.45,
-                "CVS" => 65.32,
-                _ => 0.0,
-            },
-            change: match symbol {
-                "WBA" => 0.55,
-                "CVS" => -1.23,
-                _ => 0.0,
-            },
-            change_percent: match symbol {
-                "WBA" => 2.35,
-                "CVS" => -1.88,
-                _ => 0.0,
-            },
-        })
     }
 }

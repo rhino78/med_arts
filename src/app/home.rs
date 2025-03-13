@@ -1,7 +1,6 @@
 use super::stockservice;
-use crate::app::app::PharmacyApp;
 
-pub fn render_home(app: &mut PharmacyApp, ui: &mut egui::Ui) {
+pub fn render_home(ui: &mut egui::Ui) {
     ui.heading("Welcome to the Home Page");
     ui.heading("Stock Prices");
 

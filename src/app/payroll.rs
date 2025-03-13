@@ -73,7 +73,7 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
 
     ui.vertical(|ui| {
         ui.label("Select Employee");
-        egui::ComboBox::from_id_source("employee_select")
+        egui::ComboBox::from_id_salt("employee_select")
             .selected_text(if employee_names.is_empty() {
                 "No Employees found".to_string()
             } else {
@@ -111,7 +111,7 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label("Date of Pay:");
-                egui::ComboBox::from_id_source("date_select")
+                egui::ComboBox::from_id_salt("date_select")
                     .selected_text(app.selected_friday.clone())
                     .show_ui(ui, |ui| {
                         for friday in &fridays {
@@ -173,7 +173,8 @@ pub fn render_payroll(app: &mut PharmacyApp, ui: &mut Ui) {
             social_security,
             id: 0,
         };
-        let res = _entry.save_to_db(&app.conn);
+
+        let _res = _entry.save_to_db(&app.conn);
         app.refresh_available_fridays();
     }
     ui.add_space(20.0);

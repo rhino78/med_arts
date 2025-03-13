@@ -314,8 +314,7 @@ mod tests {
     fn test_get_all_employees() {
         let mut app = create_test_app();
         // Call get_all_employees()
-        let employees =
-            PharmacyApp::get_all_employees(&mut app).expect("Failed to fetch employees");
+        let employees = database::get_all_employees(&app.conn).expect("Failed to fetch employees");
 
         // Assertions
         assert_eq!(employees.len(), 2, "Expected 2 employees in the database");
