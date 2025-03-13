@@ -28,7 +28,6 @@ pub fn perform_update() -> Result<Status, Box<dyn std::error::Error>> {
 
 pub fn check_for_updates_blocking(
 ) -> Result<(Option<String>, String), Box<dyn std::error::Error + Send + Sync>> {
-    //println!("the token is: {}", env::var("GITHUB_TOKEN").unwrap());
     match env::var("GITHUB_TOKEN") {
         Ok(s) => _ = s,
         Err(e) => {
@@ -41,7 +40,7 @@ pub fn check_for_updates_blocking(
         .header("User-Agent", "med_arts/1.0 (rshave@gmail.com)")
         .header(
             "Authorization",
-            format!("token {}", env::var("GITHUB_TOKEN").unwrap()), //"token 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",
+            format!("token {}", env::var("GITHUB_TOKEN").unwrap()),
         )
         .send()?;
 
